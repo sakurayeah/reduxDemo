@@ -1530,6 +1530,20 @@ export default connect(mapStateToProps, mapDispatchToProps)(Filtrate);
 
 
 
+
+<br>
+
+-------
+
+<br>
+
+## 十二、redux-saga
+
+redux-saga 是一个用于管理应用程序 Side Effect（副作用，例如异步获取数据，访问浏览器缓存等）的 library，它的目标是让副作用管理更容易，执行更高效，测试更简单，在处理故障时更容易。
+
+[文档参考](https://redux-saga-in-chinese.js.org/)
+
+
 <br>
 
 -------
@@ -1537,5 +1551,371 @@ export default connect(mapStateToProps, mapDispatchToProps)(Filtrate);
 <br>
 
 
-## 十一
-### 案例9
+### 案例10
+
+在`案例8`的基础上来继续写这个案例
+
+为了支持 Generator 函数，首先要安装依赖  
+$ npm i babel-plugin-transform-runtime --save-dev
+
+修改 webpack 配置
+<font>demo/webpack.config.js</font>
+```js
+var webpack = require('atool-build/lib/webpack');
+
+module.exports = function(webpackConfig) {
+  // common
+  webpackConfig.plugins.some(function(plugin, i){
+    if(plugin instanceof webpack.optimize.CommonsChunkPlugin || plugin.constructor.name === 'CommonsChunkPlugin') {
+      webpackConfig.plugins.splice(i, 1);
+      return true;
+    }
+  });
+
+  // babel 的 plugins 添加 transform-runtime , 为支持Generator函数
+  webpackConfig.babel.plugins.push("transform-runtime");
+
+  // 返回 webpack 配置对象
+  return webpackConfig;
+};
+```
+
+新建一个 sage 的文件，如下
+```
+[demo]
+  |-- proxy.config.js
+  |-- src
+    |-- sagas
+      |-- index.js
+```
+
+<font>demo/src/sagas/index.js</font>
+```js
+function* rootSaga() {
+  console.log('root saga')
+}
+
+export default rootSaga;
+```
+
+
+为了运行我们的 Saga，我们需要：
+- 创建一个 Saga middleware 和要运行的 Sagas（目前我们只有一个 helloSaga）   
+- 将这个 Saga middleware 连接至 Redux store.
+
+下面修改 entry.js
+
+<font color="deeppink">demo/src/entry.js</font>
+```js
+import React from 'react';
+import ReactDOM from 'react-dom';
+import { createStore, applyMiddleware } from 'redux';
+import createSagaMiddleware from 'redux-saga'
+import { Provider } from 'react-redux'
+import reducer from './reducers/index';
+import Init from './components/init';
+import rootSaga from './sagas/index'
+
+const sagaMiddleware = createSagaMiddleware();
+const store = createStore(reducer, applyMiddleware(sagaMiddleware));
+sagaMiddleware.run(rootSaga)
+
+ReactDOM.render(
+  <Provider store={store}>
+    <Init />
+  </Provider>,
+  document.getElementById('root'),
+);
+```
+
+引入 ./sagas/index 模块中的 rootSaga。然后使用 redux-saga 模块的 createSagaMiddleware 工厂函数来创建一个 sagaMiddleware。
+和 thunk 一样，需要使用 applyMiddleware 将 sagaMiddleware 连接至 Store。
+然后使用 sagaMiddleware.run(rootSaga) 运行 Saga
+
+$ npm run dev
+
+打开 http://localhost:8989/ ，效果如下
+
+![8](8.jpg)
+
+在 console 里打印出来了 "root saga"。
+
+下面我们来实现 `案例9` 的初始化效果
+
+<font>demo/src/actions/filtrate.js</font>
+```js
+export const showEn = (list) => {
+  let arr = [];
+  list.map((v) => {
+    if (v.language === 'EN') {
+      arr.push(v)
+    }
+  })
+  return {
+    type: 'SHOW_EN',
+    payload: arr,
+  }
+}
+
+export const filtrateInit = (params) => {
+  return {
+    type: 'FILTRATE_INIT',
+    payload: params
+  }
+}
+```
+
+创建一个 action 函数 filtrateInit
+
+<font>demo/src/components/filtrate.js</font>
+```js
+import React from 'react';
+import { bindActionCreators } from 'redux';
+import { connect } from 'react-redux';
+import * as action from '../actions/filtrate';
+
+class Filtrate extends React.Component {
+  constructor(props) {
+    super(props);
+  }
+  componentDidMount() {
+    // 初始化请求拿 list 的内容
+    const { actions } = this.props;
+    actions.filtrateInit();
+  }
+  render() {
+    const { filtrate, btnClick, actions } = this.props;
+    const { title = '', list = [] } = filtrate;
+    return (
+      <div>
+        <h3>{title}</h3>
+        <button onClick={() => actions.showEn(list)}>只显示英文</button>
+        {
+          list.map((v, i) => (
+            <div key={i}>{`${i+1}、${v.desc}`}</div>
+          ))
+        }
+      </div>
+    )
+  }
+}
+
+const mapStateToProps = (state, ownProps) => {
+  return {
+    filtrate: state.filtrate
+  }
+}
+
+function mapDispatchToProps(dispatch, ownProps) {
+  return {
+    actions: bindActionCreators(action, dispatch)
+  }
+};
+
+export default connect(mapStateToProps, mapDispatchToProps)(Filtrate);
+```
+
+在 componentDidMount 里通过 actions.filtrateInit() 来触发这个 action 的函数
+
+filtrateInit 函数返回一个 actoin，这里我们要传入 saga。当没有对应的 saga 存在时，就会传入 reducer
+
+
+<font>demo/src/sagas/index.js</font>
+```js
+import { call, put, takeEvery } from 'redux-saga/effects';     // 引入相关函数
+
+function* filtrateInit(action) {    // 参数是action创建函数返回的action
+  // res 是 ajax 返回的数据
+  const res = {
+    list: [
+      {
+        language: 'CN',
+        desc: '最困难的事情就是认识自己'
+      },
+      {
+        language: 'EN',
+        desc: 'Once you learn to quit, it becomes a habit.'
+      },
+      {
+        language: 'CN',
+        desc: '玉不啄,不成器;人不学,不知道'
+      },
+    ]
+  }
+  const { list = [] } = res;
+
+  yield put({
+    type: 'BUILD_LIST',
+    payload: list
+  })
+}
+// 在store.js中，执行了 sagaMiddleware.run(rootSaga)
+function* rootSaga() {
+  yield takeEvery('FILTRATE_INIT', filtrateInit)
+}
+
+export default rootSaga;
+```
+
+saga 捕获 action 创建函数返回的 action。
+`yield takeEvery('FILTRATE_INIT', filtrateInit)` 如果有对应 type 的 action 触发，就执行 filtrateInit() 函数
+`yield put({ type: 'BUILD_LIST', payload: list})` dispatch 一个 action 到 reducer， payload是请求返回的数据
+
+<font>demo/src/reducers/filtrate.js</font>
+```js
+// 整个应用的初始状态，可以作为 State 的默认值
+const defaultState = {
+  title: '筛选器',
+  list: []
+};
+
+export default (state = defaultState, action = {}) => {
+  // action 是一个对象，其中的type属性是必须的，表示 Action 的名称
+  const { type, payload } = action;
+  // 当 reducer 接受到不同类型的 action 时，会对 state 进行处理，返回一个新的 state 值
+  switch (type) {
+    case 'SHOW_EN':
+      return {
+        ...state,
+        list: payload
+      };
+    case 'BUILD_LIST':
+      return {
+        ...state,
+        list: payload
+      };
+    default: 
+      return state;
+  }
+};
+```
+
+然后由 ui 组件从 reducer 中获取数据，再进行展示，效果如下
+![9](9.jpg)
+
+这里 SHOW_EN 和 BUILD_LIST 做的是一样的事情，因此只需要一个，对 reducers 和 actions 进行修改
+
+<font>demo/src/reducers/filtrate.js</font>
+```js
+// 整个应用的初始状态，可以作为 State 的默认值
+const defaultState = {
+  title: '筛选器',
+  list: []
+};
+
+export default (state = defaultState, action = {}) => {
+  // action 是一个对象，其中的type属性是必须的，表示 Action 的名称
+  const { type, payload } = action;
+  // 当 reducer 接受到不同类型的 action 时，会对 state 进行处理，返回一个新的 state 值
+  switch (type) {
+    case 'BUILD_LIST':
+      return {
+        ...state,
+        list: payload
+      };
+    default: 
+      return state;
+  }
+};
+```
+
+<font>demo/src/actions/filtrate.js</font>
+```js
+export const showEn = (list) => {
+  let arr = [];
+  list.map((v) => {
+    if (v.language === 'EN') {
+      arr.push(v)
+    }
+  })
+  return {
+    type: 'BUILD_LIST',
+    payload: arr,
+  }
+}
+
+export const filtrateInit = (params) => {
+  return {
+    type: 'FILTRATE_INIT',
+    payload: params
+  }
+}
+```
+
+下面来写 ajax 的部分，先来写mock数据
+
+<font>demo/proxy.config.js</font>
+```js
+module.exports = {
+  'GET /filtrateInit.json': {
+    success: true,
+    list: [
+      {
+        language: 'CN',
+        desc: '最困难的事情就是认识自己'
+      },
+      {
+        language: 'EN',
+        desc: 'Once you learn to quit, it becomes a habit.'
+      },
+      {
+        language: 'CN',
+        desc: '玉不啄,不成器;人不学,不知道'
+      },
+    ]
+  }
+}
+```
+
+安装依赖 $ npm i fetch-ajax
+
+<font>demo/src/sagas/index.js</font>
+```js
+import fetch from 'fetch-ajax';
+import { call, put, takeEvery } from 'redux-saga/effects';     // 引入相关函数
+
+// 参数是action创建函数返回的action
+function* filtrateInit(action) {
+  const fn = function() {
+    return fetch.get('filtrateInit.json', {
+      dataType: 'json',
+    }).then(res => {
+      return res
+    }).catch(err => {
+      return err
+    });
+  }
+  // 执行 fn 函数，返回值赋值给res
+  const res = yield call(fn)    
+  const { list = [] } = res;
+
+  // dispatch一个action到reducer， payload是请求返回的数据
+  yield put({
+    type: 'BUILD_LIST',
+    payload: list
+  })
+}
+
+// 在store.js中，执行了 sagaMiddleware.run(rootSaga)
+function* rootSaga() {
+  // 如果有对应type的action触发，就执行filtrateInit()函数
+  yield takeEvery('FILTRATE_INIT', filtrateInit) 
+}
+
+export default rootSaga;
+```
+
+这样就和 `案例9` 的效果是一样的了
+
+这里就只是写了一个简单的小案例，redux-saga 的更多用法还是参考官网文档吧
+
+
+<br>
+
+-------
+
+<br>
+
+
+## 十二
+### 案例10
